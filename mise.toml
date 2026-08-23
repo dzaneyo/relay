@@ -1,0 +1,42 @@
+[tools]
+go = "1.26"
+node = "24"
+pnpm = "10"
+
+[tasks.setup]
+description = "Install backend and frontend dependencies"
+run = """
+go mod download
+cd frontend
+pnpm install
+"""
+
+[tasks.dev-backend]
+description = "Run relay backend"
+run = "go run ./cmd/relay web"
+
+[tasks.dev-frontend]
+description = "Run Vue development server"
+run = "cd frontend && pnpm dev"
+
+[tasks.test]
+description = "Run Go tests"
+run = "go test ./..."
+
+[tasks.build-frontend]
+description = "Build Vue frontend into Go embed directory"
+run = "cd frontend && pnpm build"
+
+[tasks.build]
+description = "Build relay single binary"
+run = """
+cd frontend
+pnpm build
+cd ..
+mkdir -p build
+go build -trimpath -ldflags='-s -w' -o build/relay ./cmd/relay
+"""
+
+[tasks.run]
+description = "Run built binary"
+run = "./build/relay"
