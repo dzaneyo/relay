@@ -1,6 +1,7 @@
 .DS_Store
 .codex/
 /AGENTS.md
+/docs/relay-go-vue3-development-guide.md
 build/
 
 *.db
