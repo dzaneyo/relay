@@ -1,18 +1,18 @@
 # Relay
 
-Relay 是一个本地优先的 Host、Database、Note 管理与 SSH 连接工具。它提供 Web 界面和命令行入口，用来集中管理连接信息、跳板路线和工作笔记。
+Relay is a local-first manager for Hosts, Databases, and Notes, with SSH connection support. It provides a web UI and CLI for managing connection details, jump-host routes, and work notes.
 
-## 当前能力
+## Current Capabilities
 
-- **Web UI**：管理 HOST、DATABASE、NOTE 记录，支持搜索、收藏、编辑和删除。
-- **CLI**：支持 `list`、`search`、`show`、`connect` 和 `web`。
-- **HOST 路由**：HOST 可以直连，也可以配置经过多个 HOST 跳板的连接路线；`connect` 会解析并展示路线计划。SSH 会话的实际启动尚未启用。
-- **DATABASE**：支持 MySQL 和 PostgreSQL 连接信息，并可通过 CLI 调用对应客户端。
-- **NOTE**：仅在 Web UI 中管理，不通过 CLI 的记录列表和搜索展示。
+- **Web UI**: Manage HOST, DATABASE, and NOTE records with search, favorites, editing, and deletion.
+- **CLI**: Supports `list`, `search`, `show`, `connect`, and `web`.
+- **HOST routing**: Hosts can connect directly or through routes with multiple jump hosts. `connect` resolves and displays the route plan; SSH session launch is not yet enabled.
+- **DATABASE**: Store MySQL and PostgreSQL connection details and invoke the corresponding clients through the CLI.
+- **NOTE**: Notes are managed only in the Web UI and are not included in CLI record listings or search results.
 
-## 快速开始
+## Quick Start
 
-项目使用 mise 管理 Go、Node.js 和 pnpm。安装并启用 mise 后，在项目根目录执行：
+The project uses mise to manage Go, Node.js, and pnpm. After installing and enabling mise, run the following from the project root:
 
 ```bash
 mise run setup
@@ -20,16 +20,16 @@ mise run build
 mise run run
 ```
 
-然后打开 <http://127.0.0.1:17321>。
+Then open <http://127.0.0.1:17321>.
 
-开发时也可以分别启动后端和前端：
+For development, you can also start the backend and frontend separately:
 
 ```bash
-# 终端 1
+# Terminal 1
 mise run dev-backend
 
-# 终端 2
+# Terminal 2
 mise run dev-frontend
 ```
 
-开发页面地址为 <http://127.0.0.1:5173>。默认数据保存在 `~/.relay`，也可以通过 `RELAY_HOME` 指定目录。
+The development UI is available at <http://127.0.0.1:5173>. By default, data is stored in `~/.relay`; you can also set `RELAY_HOME` to use a different directory.
