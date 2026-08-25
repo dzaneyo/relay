@@ -108,7 +108,7 @@ func migrateDatabaseRoute(db *sql.DB) error {
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	found := false
 	for rows.Next() {
 		var cid int
 		var name, columnType string
@@ -116,14 +116,23 @@ func migrateDatabaseRoute(db *sql.DB) error {
 		var defaultValue any
 		var pk int
 		if err = rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			_ = rows.Close()
 			return err
 		}
 		if name == "route_id" {
-			return nil
+			found = true
+			break
 		}
 	}
 	if err = rows.Err(); err != nil {
+		_ = rows.Close()
 		return err
+	}
+	if err = rows.Close(); err != nil {
+		return err
+	}
+	if found {
+		return nil
 	}
 
 	_, err = db.Exec(`ALTER TABLE rd_db_connections ADD COLUMN route_id TEXT REFERENCES rd_ssh_routes(id) ON DELETE SET NULL`)
