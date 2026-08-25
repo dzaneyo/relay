@@ -21,9 +21,17 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return response.json() as Promise<T>
 }
 
-export function listRecords(query = ''): Promise<RecordSummary[]> {
-  const suffix = query.trim() ? `?q=${encodeURIComponent(query.trim())}` : ''
+export function listRecords(query = '', category = '', tags: string[] = []): Promise<RecordSummary[]> {
+  const params = new URLSearchParams()
+  if (query.trim()) params.set('q', query.trim())
+  if (category) params.set('category', category)
+  if (tags.length) params.set('tags', tags.join(','))
+  const suffix = params.size ? `?${params.toString()}` : ''
   return request(`/api/records${suffix}`)
+}
+
+export function listTags(): Promise<string[]> {
+  return request('/api/tags')
 }
 
 export function getRecord(id: string): Promise<RecordDetail> {

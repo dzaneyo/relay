@@ -33,7 +33,7 @@ func TestHealthAndNoteAPI(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("health status=%d body=%s", w.Code, w.Body.String())
 	}
-	body := []byte(`{"name":"Runbook","alias":"ignored","category":"NOTE","notes":"Deploy carefully","favorite":true}`)
+	body := []byte(`{"name":"Runbook","alias":"ignored","category":"NOTE","notes":"Deploy carefully","favorite":true,"tags":["production","runbook"]}`)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/records", bytes.NewReader(body)))
 	if w.Code != http.StatusCreated {
@@ -57,16 +57,24 @@ func TestHealthAndNoteAPI(t *testing.T) {
 	if w.Code != http.StatusOK {
 		t.Fatalf("detail status=%d body=%s", w.Code, w.Body.String())
 	}
-	updateBody := []byte(`{"name":"Runbook updated","alias":"still-ignored","category":"NOTE","notes":"Updated"}`)
+	updateBody := []byte(`{"name":"Runbook updated","alias":"still-ignored","category":"NOTE","notes":"Updated","tags":["production","runbook"]}`)
 	w = httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest(http.MethodPut, "/api/records/"+created.Record.ID, bytes.NewReader(updateBody)))
 	if w.Code != http.StatusOK {
 		t.Fatalf("NOTE update status=%d body=%s", w.Code, w.Body.String())
 	}
 	w = httptest.NewRecorder()
-	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/records?q=updated", nil))
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/records?q=updated&category=NOTE&tags=production", nil))
 	if w.Code != http.StatusOK {
 		t.Fatalf("list status=%d body=%s", w.Code, w.Body.String())
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte(created.Record.ID)) {
+		t.Fatalf("filtered list does not contain record: %s", w.Body.String())
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/tags", nil))
+	if w.Code != http.StatusOK || !bytes.Contains(w.Body.Bytes(), []byte(`"production"`)) {
+		t.Fatalf("tags status=%d body=%s", w.Code, w.Body.String())
 	}
 }
 

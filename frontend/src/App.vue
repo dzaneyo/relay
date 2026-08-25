@@ -8,6 +8,7 @@ import {
   getRecord,
   listRecords,
   listRoutes,
+  listTags,
   updateRecord,
   updateRoute,
 } from './api'
@@ -28,6 +29,7 @@ interface RecordForm {
   category: RecordCategory
   notes: string
   favorite: boolean
+  tags: string
   username: string
   password: string
   authType: AuthType
@@ -50,11 +52,16 @@ const records = ref<RecordSummary[]>([])
 const routes = ref<SSHRoute[]>([])
 const hostOptions = ref<RecordSummary[]>([])
 const search = ref('')
+const categoryFilter = ref<RecordCategory | ''>('')
+const selectedTags = ref<string[]>([])
+const availableTags = ref<string[]>([])
 const selectedRecordId = ref('')
 const selectedRouteId = ref('')
 const recordDrawerOpen = ref(false)
 const routeDrawerOpen = ref(false)
 const hasExistingPassword = ref(false)
+const originalHasExistingPassword = ref(false)
+const originalRecordCategory = ref<RecordCategory>('NOTE')
 const loading = ref(false)
 const detailLoading = ref(false)
 const saving = ref(false)
@@ -62,6 +69,7 @@ const error = ref('')
 const success = ref('')
 
 const recordForm = reactive<RecordForm>(emptyRecordForm())
+const recordDrafts = reactive<Partial<Record<RecordCategory, RecordForm>>>({})
 const routeForm = reactive<RouteForm>({ name: '', description: '', hostIds: [] })
 
 const editingRecord = computed(() => selectedRecordId.value !== '')
@@ -77,6 +85,7 @@ function emptyRecordForm(category: RecordCategory = 'NOTE'): RecordForm {
     category,
     notes: '',
     favorite: false,
+    tags: '',
     username: '',
     password: '',
     authType: category === 'HOST' ? 'NONE' : 'PASSWORD',
@@ -102,12 +111,33 @@ async function loadRecordList() {
   loading.value = true
   clearMessages()
   try {
-    records.value = await listRecords(search.value)
+    records.value = await listRecords(search.value, categoryFilter.value, selectedTags.value)
   } catch (value) {
     error.value = messageOf(value)
   } finally {
     loading.value = false
   }
+}
+
+async function refreshTags() {
+  availableTags.value = await listTags()
+}
+
+function toggleTagFilter(tag: string) {
+  selectedTags.value = selectedTags.value.includes(tag)
+    ? selectedTags.value.filter((item) => item !== tag)
+    : [...selectedTags.value, tag]
+  void loadRecordList()
+}
+
+function clearRecordDrafts() {
+  delete recordDrafts.NOTE
+  delete recordDrafts.HOST
+  delete recordDrafts.DATABASE
+}
+
+function snapshotRecordForm(): RecordForm {
+  return { ...recordForm }
 }
 
 async function refreshRoutes() {
@@ -147,7 +177,11 @@ async function switchTab(next: Tab) {
 function newRecord(category: RecordCategory = 'NOTE') {
   selectedRecordId.value = ''
   hasExistingPassword.value = false
+  originalHasExistingPassword.value = false
+  originalRecordCategory.value = category
+  clearRecordDrafts()
   Object.assign(recordForm, emptyRecordForm(category))
+  recordDrafts[category] = snapshotRecordForm()
   clearMessages()
   recordDrawerOpen.value = true
 }
@@ -158,13 +192,18 @@ function closeRecordDrawer() {
 }
 
 function changeCategory(category: RecordCategory) {
+  if (recordForm.category === category) return
+  recordDrafts[recordForm.category] = snapshotRecordForm()
   const common = {
     name: recordForm.name,
-    alias: recordForm.alias,
     notes: recordForm.notes,
     favorite: recordForm.favorite,
+    tags: recordForm.tags,
   }
-  Object.assign(recordForm, emptyRecordForm(category), common)
+  Object.assign(recordForm, recordDrafts[category] ?? { ...emptyRecordForm(category), ...common })
+  hasExistingPassword.value = editingRecord.value
+    && category === originalRecordCategory.value
+    && originalHasExistingPassword.value
 }
 
 async function selectRecord(id: string) {
@@ -176,12 +215,15 @@ async function selectRecord(id: string) {
   try {
     const detail = await getRecord(id)
     const credential = detail.credential
-    hasExistingPassword.value = credential?.authType === 'PASSWORD'
+    originalRecordCategory.value = detail.record.category
+    originalHasExistingPassword.value = credential?.authType === 'PASSWORD'
+    hasExistingPassword.value = originalHasExistingPassword.value
     Object.assign(recordForm, emptyRecordForm(detail.record.category), {
       name: detail.record.name,
       alias: detail.record.alias,
       notes: detail.record.notes,
       favorite: detail.record.favorite,
+      tags: (detail.record.tags ?? []).join(', '),
       username: credential?.username ?? '',
       password: '',
       authType: credential?.authType ?? 'NONE',
@@ -192,6 +234,8 @@ async function selectRecord(id: string) {
       dbType: detail.database?.dbType ?? 'MYSQL',
       databaseName: detail.database?.databaseName ?? '',
     })
+    clearRecordDrafts()
+    recordDrafts[detail.record.category] = snapshotRecordForm()
   } catch (value) {
     error.value = messageOf(value)
   } finally {
@@ -220,6 +264,7 @@ function recordPayload(): RecordInput {
     category: recordForm.category,
     notes: recordForm.notes,
     favorite: recordForm.favorite,
+    tags: recordForm.tags.split(',').map((tag) => tag.trim()).filter(Boolean),
   }
   if (recordForm.category === 'HOST') {
     base.credential = {
@@ -250,6 +295,8 @@ function recordPayload(): RecordInput {
 }
 
 async function saveRecord() {
+  if (editingRecord.value && recordForm.category !== originalRecordCategory.value
+    && !window.confirm(`Convert ${originalRecordCategory.value} to ${recordForm.category}? The previous connection configuration will be removed.`)) return
   saving.value = true
   clearMessages()
   try {
@@ -258,8 +305,12 @@ async function saveRecord() {
       : await createRecord(recordPayload())
     selectedRecordId.value = detail.record.id
     hasExistingPassword.value = detail.credential?.authType === 'PASSWORD'
+    originalHasExistingPassword.value = hasExistingPassword.value
+    originalRecordCategory.value = detail.record.category
     recordForm.password = ''
-    await Promise.all([loadRecordList(), refreshRoutes()])
+    clearRecordDrafts()
+    recordDrafts[recordForm.category] = snapshotRecordForm()
+    await Promise.all([loadRecordList(), refreshRoutes(), refreshTags()])
     success.value = 'Record saved.'
   } catch (value) {
     error.value = messageOf(value)
@@ -395,7 +446,7 @@ function handleKeydown(event: KeyboardEvent) {
 
 onMounted(async () => {
   window.addEventListener('keydown', handleKeydown)
-  await Promise.all([loadRecordList(), refreshRoutes()])
+  await Promise.all([loadRecordList(), refreshRoutes(), refreshTags()])
 })
 
 onBeforeUnmount(() => {
@@ -426,8 +477,17 @@ onBeforeUnmount(() => {
       </div>
       <form class="search search-wide" role="search" @submit.prevent="loadRecordList">
         <input v-model="search" type="search" placeholder="Search name, alias, notes" aria-label="Search records" />
+        <select v-model="categoryFilter" aria-label="Filter by record type" @change="loadRecordList">
+          <option value="">All types</option>
+          <option value="HOST">HOST</option>
+          <option value="DATABASE">DATABASE</option>
+          <option value="NOTE">NOTE</option>
+        </select>
         <button type="submit">Search</button>
       </form>
+      <div v-if="availableTags.length" class="tag-filters" aria-label="Filter by tags">
+        <button v-for="tag in availableTags" :key="tag" type="button" :class="{ active: selectedTags.includes(tag) }" :aria-pressed="selectedTags.includes(tag)" @click="toggleTagFilter(tag)">{{ tag }}</button>
+      </div>
       <div class="list" :aria-busy="loading">
         <p v-if="loading" class="empty">Loading records…</p>
         <p v-else-if="records.length === 0" class="empty bordered">No records found.<br />Create one to get started.</p>
@@ -449,8 +509,10 @@ onBeforeUnmount(() => {
               <span class="list-title"><span v-if="record.favorite" class="favorite" title="Favorite">★</span>{{ record.name }}</span>
               <span class="badge">{{ record.category }}</span>
               <code v-if="record.category !== 'NOTE'" class="list-alias">{{ record.alias }}</code>
+              <span v-for="tag in record.tags.slice(0, 3)" :key="tag" class="tag">{{ tag }}</span>
+              <span v-if="record.tags.length > 3" class="tag more">+{{ record.tags.length - 3 }}</span>
             </div>
-            <p class="list-summary">{{ record.notes.trim() || 'No notes' }}</p>
+            <p class="list-summary" :aria-hidden="!record.notes.trim() && record.category !== 'NOTE'">{{ record.notes.trim() || (record.category === 'NOTE' ? 'No notes' : '\u00a0') }}</p>
           </div>
           <button
             v-if="record.category === 'NOTE' || record.category === 'HOST'"
@@ -506,7 +568,7 @@ onBeforeUnmount(() => {
             <fieldset :disabled="saving">
               <legend>Record type</legend>
               <div class="segmented">
-                <button v-for="category in (['NOTE', 'HOST', 'DATABASE'] as RecordCategory[])" :key="category" type="button" :class="{ active: recordForm.category === category }" :disabled="editingRecord" @click="changeCategory(category)">{{ category }}</button>
+                <button v-for="category in (['NOTE', 'HOST', 'DATABASE'] as RecordCategory[])" :key="category" type="button" :class="{ active: recordForm.category === category }" @click="changeCategory(category)">{{ category }}</button>
               </div>
             </fieldset>
 
@@ -515,6 +577,7 @@ onBeforeUnmount(() => {
               <label v-if="recordForm.category !== 'NOTE'"><span>Alias</span><input v-model="recordForm.alias" required autocomplete="off" pattern="[a-zA-Z0-9][a-zA-Z0-9._-]*" placeholder="prod-db" /></label>
             </div>
             <label><span>{{ recordForm.category === 'NOTE' ? 'Content' : 'Notes' }} <small>Optional</small></span><textarea v-model="recordForm.notes" :class="{ 'note-content': recordForm.category === 'NOTE' }" :rows="recordForm.category === 'NOTE' ? 10 : 3" :placeholder="recordForm.category === 'NOTE' ? 'Write your note here…' : 'Environment, owner, or other context'"></textarea></label>
+            <label><span>Tags <small>Comma separated</small></span><input v-model="recordForm.tags" autocomplete="off" placeholder="production, Doris, data-platform" /></label>
             <label class="checkbox"><input v-model="recordForm.favorite" type="checkbox" /><span>Mark as favorite</span></label>
 
             <div v-if="recordForm.category !== 'NOTE'" class="divider"><span>{{ recordForm.category === 'HOST' ? 'SSH connection' : 'Database connection' }}</span></div>
@@ -549,7 +612,7 @@ onBeforeUnmount(() => {
             </div>
 
             <div class="actions">
-              <button v-if="editingRecord" class="danger-link" type="button" :disabled="saving" @click="removeRecord">Delete record</button>
+              <button v-if="editingRecord" class="danger-outline" type="button" :disabled="saving" @click="removeRecord">Delete record</button>
               <span v-else></span>
               <button class="primary" type="submit" :disabled="saving">{{ saving ? 'Saving…' : 'Save record' }}</button>
             </div>
@@ -581,7 +644,7 @@ onBeforeUnmount(() => {
             </ol>
             <p v-else class="empty bordered">Add at least one HOST hop.</p>
             <div class="actions">
-              <button v-if="editingRoute" class="danger-link" type="button" :disabled="saving" @click="removeRoute">Delete route</button><span v-else></span>
+              <button v-if="editingRoute" class="danger-outline" type="button" :disabled="saving" @click="removeRoute">Delete route</button><span v-else></span>
               <button class="primary" type="submit" :disabled="saving || routeForm.hostIds.length === 0">{{ saving ? 'Saving…' : 'Save route' }}</button>
             </div>
           </form>

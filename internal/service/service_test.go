@@ -127,6 +127,81 @@ func TestNoteCreateAndUpdateWithoutAliasOrCredential(t *testing.T) {
 	}
 }
 
+func TestRecordTagsFilteringAndCategoryConversion(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+
+	input := note("Doris account")
+	input.Tags = []string{" Production ", "Doris", "doris"}
+	created, err := f.records.Create(ctx, input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	items, err := f.records.ListFiltered(ctx, "", model.CategoryNote, []string{"Production", "Doris"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || len(created.Record.Tags) != 2 {
+		t.Fatalf("unexpected tag result: items=%+v tags=%v", items, created.Record.Tags)
+	}
+
+	hostInput := model.RecordInput{
+		Name: "Doris host", Alias: "doris-host", Category: model.CategoryHost,
+		Notes: created.Record.Notes, Tags: created.Record.Tags,
+		Credential: &model.Credential{Username: "edm", AuthType: model.AuthPassword, SecretValue: "host-secret"},
+		SSH:        &model.SSHConnection{Host: "10.0.0.8", Port: 22},
+	}
+	convertedHost, err := f.records.Update(ctx, created.Record.ID, hostInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if convertedHost.Record.Category != model.CategoryHost || convertedHost.SSH == nil || convertedHost.Database != nil {
+		t.Fatalf("NOTE to HOST conversion failed: %+v", convertedHost)
+	}
+
+	databaseInput := database("doris-db")
+	databaseInput.Tags = convertedHost.Record.Tags
+	convertedDatabase, err := f.records.Update(ctx, created.Record.ID, databaseInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if convertedDatabase.Record.Category != model.CategoryDatabase || convertedDatabase.Database == nil || convertedDatabase.SSH != nil {
+		t.Fatalf("HOST to DATABASE conversion failed: %+v", convertedDatabase)
+	}
+
+	noteInput := note("Doris note")
+	noteInput.Tags = convertedDatabase.Record.Tags
+	convertedNote, err := f.records.Update(ctx, created.Record.ID, noteInput)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if convertedNote.Record.Category != model.CategoryNote || convertedNote.Credential != nil || convertedNote.SSH != nil || convertedNote.Database != nil || len(convertedNote.Record.Tags) != 2 {
+		t.Fatalf("DATABASE to NOTE conversion failed: %+v", convertedNote)
+	}
+}
+
+func TestRouteHopHostCannotBeConverted(t *testing.T) {
+	f := setup(t)
+	ctx := context.Background()
+	hostDetail, err := f.records.Create(ctx, host("route-hop", "10.0.0.9"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.routes.Create(ctx, model.RouteInput{Name: "protected", Hops: []model.RouteHop{{Seq: 1, HostRecordID: hostDetail.Record.ID}}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = f.records.Update(ctx, hostDetail.Record.ID, note("must fail")); err == nil || !strings.Contains(err.Error(), "cannot be converted") {
+		t.Fatalf("expected route-hop conversion rejection, got %v", err)
+	}
+	unchanged, err := f.records.DetailByID(ctx, hostDetail.Record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.Record.Category != model.CategoryHost || unchanged.SSH == nil {
+		t.Fatalf("failed conversion changed the record: %+v", unchanged)
+	}
+}
+
 func TestRecordUpdatePreservesAggregateIdentity(t *testing.T) {
 	f := setup(t)
 	ctx := context.Background()

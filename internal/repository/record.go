@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/dzaneyo/relay/internal/model"
+	"github.com/google/uuid"
 )
 
 var ErrNotFound = errors.New("not found")
@@ -48,21 +49,45 @@ func scanRecord(row interface{ Scan(...any) error }) (*model.Record, error) {
 }
 
 const recordCols = `id,name,alias,category,notes,favorite,created_at,updated_at`
+const qualifiedRecordCols = `r.id,r.name,r.alias,r.category,r.notes,r.favorite,r.created_at,r.updated_at`
+
+type RecordFilter struct {
+	Query    string
+	Category model.RecordCategory
+	Tags     []string
+}
 
 func (r *Repository) List(ctx context.Context, q string) ([]model.Record, error) {
-	query := `SELECT ` + recordCols + ` FROM rd_records WHERE deleted='N'`
+	return r.ListFiltered(ctx, RecordFilter{Query: q})
+}
+
+func (r *Repository) ListFiltered(ctx context.Context, filter RecordFilter) ([]model.Record, error) {
+	query := `SELECT ` + qualifiedRecordCols + ` FROM rd_records r WHERE r.deleted='N'`
 	args := []any{}
-	if strings.TrimSpace(q) != "" {
-		query += ` AND (name LIKE ? COLLATE NOCASE OR alias LIKE ? COLLATE NOCASE OR notes LIKE ? COLLATE NOCASE)`
-		like := "%" + strings.TrimSpace(q) + "%"
-		args = []any{like, like, like}
+	if strings.TrimSpace(filter.Query) != "" {
+		query += ` AND (r.name LIKE ? COLLATE NOCASE OR r.alias LIKE ? COLLATE NOCASE OR r.notes LIKE ? COLLATE NOCASE OR EXISTS (
+			SELECT 1 FROM rd_record_tags rt JOIN rd_tags t ON t.id=rt.tag_id
+			WHERE rt.record_id=r.id AND t.name LIKE ? COLLATE NOCASE
+		))`
+		like := "%" + strings.TrimSpace(filter.Query) + "%"
+		args = append(args, like, like, like, like)
 	}
-	query += ` ORDER BY favorite DESC, updated_at DESC, id DESC`
+	if filter.Category != "" {
+		query += ` AND r.category=?`
+		args = append(args, filter.Category)
+	}
+	for _, tag := range filter.Tags {
+		query += ` AND EXISTS (
+			SELECT 1 FROM rd_record_tags rt JOIN rd_tags t ON t.id=rt.tag_id
+			WHERE rt.record_id=r.id AND t.name=? COLLATE NOCASE
+		)`
+		args = append(args, tag)
+	}
+	query += ` ORDER BY r.favorite DESC, r.updated_at DESC, r.id DESC`
 	rows, err := r.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	result := []model.Record{}
 	for rows.Next() {
 		x, err := scanRecord(rows)
@@ -71,7 +96,81 @@ func (r *Repository) List(ctx context.Context, q string) ([]model.Record, error)
 		}
 		result = append(result, *x)
 	}
-	return result, rows.Err()
+	if err = rows.Err(); err != nil {
+		rows.Close()
+		return nil, err
+	}
+	if err = rows.Close(); err != nil {
+		return nil, err
+	}
+	for i := range result {
+		result[i].Tags, err = r.LoadRecordTags(ctx, r.db, result[i].ID)
+		if err != nil {
+			return nil, err
+		}
+	}
+	return result, nil
+}
+
+func (r *Repository) ListTags(ctx context.Context) ([]string, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT name FROM rd_tags ORDER BY name COLLATE NOCASE`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	tags := []string{}
+	for rows.Next() {
+		var tag string
+		if err = rows.Scan(&tag); err != nil {
+			return nil, err
+		}
+		tags = append(tags, tag)
+	}
+	return tags, rows.Err()
+}
+
+func (r *Repository) LoadRecordTags(ctx context.Context, q DBTX, recordID string) ([]string, error) {
+	rows, err := q.QueryContext(ctx, `
+		SELECT t.name FROM rd_record_tags rt
+		JOIN rd_tags t ON t.id=rt.tag_id
+		WHERE rt.record_id=?
+		ORDER BY t.name COLLATE NOCASE
+	`, recordID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	tags := []string{}
+	for rows.Next() {
+		var tag string
+		if err = rows.Scan(&tag); err != nil {
+			return nil, err
+		}
+		tags = append(tags, tag)
+	}
+	return tags, rows.Err()
+}
+
+func (r *Repository) ReplaceRecordTags(ctx context.Context, q DBTX, recordID string, tags []string, now string) error {
+	if _, err := q.ExecContext(ctx, `DELETE FROM rd_record_tags WHERE record_id=?`, recordID); err != nil {
+		return err
+	}
+	for _, name := range tags {
+		var tagID string
+		err := q.QueryRowContext(ctx, `SELECT id FROM rd_tags WHERE name=? COLLATE NOCASE`, name).Scan(&tagID)
+		if errors.Is(err, sql.ErrNoRows) {
+			tagID = uuid.NewString()
+			if _, err = q.ExecContext(ctx, `INSERT INTO rd_tags(id,name,created_at) VALUES(?,?,?)`, tagID, name, now); err != nil {
+				return err
+			}
+		} else if err != nil {
+			return err
+		}
+		if _, err = q.ExecContext(ctx, `INSERT INTO rd_record_tags(record_id,tag_id) VALUES(?,?)`, recordID, tagID); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *Repository) FindRecord(ctx context.Context, field, value string) (*model.Record, error) {
@@ -198,6 +297,16 @@ func (r *Repository) UpsertDatabase(ctx context.Context, q DBTX, x model.DBConne
 	return e
 }
 
+func (r *Repository) DeleteSSH(ctx context.Context, q DBTX, recordID string) error {
+	_, err := q.ExecContext(ctx, `DELETE FROM rd_ssh_connections WHERE record_id=?`, recordID)
+	return err
+}
+
+func (r *Repository) DeleteDatabase(ctx context.Context, q DBTX, recordID string) error {
+	_, err := q.ExecContext(ctx, `DELETE FROM rd_db_connections WHERE record_id=?`, recordID)
+	return err
+}
+
 func (r *Repository) FindDetailByAlias(ctx context.Context, alias string) (*model.RecordDetail, error) {
 	x, e := r.FindRecord(ctx, "alias", alias)
 	if e != nil {
@@ -213,6 +322,11 @@ func (r *Repository) FindDetailByID(ctx context.Context, id string) (*model.Reco
 	return r.detail(ctx, x)
 }
 func (r *Repository) detail(ctx context.Context, rec *model.Record) (*model.RecordDetail, error) {
+	var e error
+	rec.Tags, e = r.LoadRecordTags(ctx, r.db, rec.ID)
+	if e != nil {
+		return nil, e
+	}
 	d := &model.RecordDetail{Record: *rec}
 	if rec.Category == model.CategoryNote {
 		return d, nil

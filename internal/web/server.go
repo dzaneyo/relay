@@ -25,6 +25,7 @@ func (s *Server) Handler() http.Handler {
 	r := chi.NewRouter()
 	r.Get("/api/health", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, 200, map[string]bool{"ok": true}) })
 	r.Get("/api/records", s.listRecords)
+	r.Get("/api/tags", s.listTags)
 	r.Post("/api/records", s.createRecord)
 	r.Get("/api/records/{id}", s.getRecord)
 	r.Put("/api/records/{id}", s.updateRecord)
@@ -79,7 +80,21 @@ func redact(d *model.RecordDetail) *model.RecordDetail {
 	return d
 }
 func (s *Server) listRecords(w http.ResponseWriter, r *http.Request) {
-	x, e := s.app.RecordService.List(r.Context(), r.URL.Query().Get("q"))
+	var tags []string
+	for _, tag := range strings.Split(r.URL.Query().Get("tags"), ",") {
+		if tag = strings.TrimSpace(tag); tag != "" {
+			tags = append(tags, tag)
+		}
+	}
+	x, e := s.app.RecordService.ListFiltered(r.Context(), r.URL.Query().Get("q"), model.RecordCategory(r.URL.Query().Get("category")), tags)
+	if e != nil {
+		writeError(w, statusFor(e), e)
+		return
+	}
+	writeJSON(w, 200, x)
+}
+func (s *Server) listTags(w http.ResponseWriter, r *http.Request) {
+	x, e := s.app.RecordService.ListTags(r.Context())
 	if e != nil {
 		writeError(w, statusFor(e), e)
 		return

@@ -30,6 +30,7 @@ type Record struct {
 	Category  RecordCategory `json:"category"`
 	Notes     string         `json:"notes"`
 	Favorite  bool           `json:"favorite"`
+	Tags      []string       `json:"tags"`
 	Deleted   string         `json:"-"`
 	CreatedAt string         `json:"createdAt"`
 	UpdatedAt string         `json:"updatedAt"`
@@ -100,6 +101,7 @@ type RecordInput struct {
 	Category   RecordCategory `json:"category"`
 	Notes      string         `json:"notes"`
 	Favorite   bool           `json:"favorite"`
+	Tags       []string       `json:"tags,omitempty"`
 	Credential *Credential    `json:"credential,omitempty"`
 	SSH        *SSHConnection `json:"ssh,omitempty"`
 	Database   *DBConnection  `json:"database,omitempty"`

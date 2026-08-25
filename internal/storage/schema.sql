@@ -224,3 +224,25 @@ CREATE TABLE
 CREATE INDEX IF NOT EXISTS idx_rd_db_connections_credential ON rd_db_connections (credential_id);
 
 CREATE INDEX IF NOT EXISTS idx_rd_db_connections_type ON rd_db_connections (db_type);
+
+-- =========================================================
+-- 7. Tags
+-- =========================================================
+CREATE TABLE
+    IF NOT EXISTS rd_tags (
+        id TEXT PRIMARY KEY,
+        name TEXT NOT NULL COLLATE NOCASE,
+        created_at TEXT NOT NULL,
+        UNIQUE (name)
+    );
+
+CREATE TABLE
+    IF NOT EXISTS rd_record_tags (
+        record_id TEXT NOT NULL,
+        tag_id TEXT NOT NULL,
+        PRIMARY KEY (record_id, tag_id),
+        FOREIGN KEY (record_id) REFERENCES rd_records (id) ON DELETE CASCADE,
+        FOREIGN KEY (tag_id) REFERENCES rd_tags (id) ON DELETE CASCADE
+    );
+
+CREATE INDEX IF NOT EXISTS idx_rd_record_tags_tag ON rd_record_tags (tag_id);

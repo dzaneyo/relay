@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"errors"
 	"fmt"
 	"net/http"
 
@@ -89,10 +88,6 @@ func newConnectCommand(a *app.App) *cobra.Command {
 			}
 			fmt.Fprintln(w, "Target:")
 			printNode(w, "  ", plan.Target)
-		}
-		if errors.Is(e, service.ErrSSHLaunchNotEnabled) {
-			fmt.Fprintln(cmd.OutOrStdout(), e)
-			return nil
 		}
 		return e
 	}}

@@ -23,6 +23,15 @@ func NewRecordService(r *repository.Repository) *RecordService { return &RecordS
 func (s *RecordService) List(ctx context.Context, q string) ([]model.Record, error) {
 	return s.repo.List(ctx, q)
 }
+func (s *RecordService) ListFiltered(ctx context.Context, q string, category model.RecordCategory, tags []string) ([]model.Record, error) {
+	if category != "" && category != model.CategoryNote && category != model.CategoryHost && category != model.CategoryDatabase {
+		return nil, fmt.Errorf("invalid category: %s", category)
+	}
+	return s.repo.ListFiltered(ctx, repository.RecordFilter{Query: q, Category: category, Tags: normalizeTags(tags)})
+}
+func (s *RecordService) ListTags(ctx context.Context) ([]string, error) {
+	return s.repo.ListTags(ctx)
+}
 func (s *RecordService) DetailByID(ctx context.Context, id string) (*model.RecordDetail, error) {
 	return s.repo.FindDetailByID(ctx, id)
 }
@@ -135,6 +144,25 @@ func validateRecord(in *model.RecordInput) error {
 	return nil
 }
 
+func normalizeTags(tags []string) []string {
+	result := make([]string, 0, len(tags))
+	seen := map[string]struct{}{}
+	for _, tag := range tags {
+		tag = strings.TrimSpace(tag)
+		if tag == "" {
+			continue
+		}
+		key := strings.ToLower(tag)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, tag)
+	}
+	sort.Slice(result, func(i, j int) bool { return strings.ToLower(result[i]) < strings.ToLower(result[j]) })
+	return result
+}
+
 func (s *RecordService) Create(ctx context.Context, in model.RecordInput) (*model.RecordDetail, error) {
 	return s.save(ctx, "", in, true)
 }
@@ -147,7 +175,24 @@ func (s *RecordService) save(ctx context.Context, id string, in model.RecordInpu
 		id = uuid.NewString()
 	}
 	err := s.repo.InTx(ctx, func(tx *sql.Tx) error {
-		if !creating && in.Credential != nil && in.Credential.AuthType == model.AuthPassword && in.Credential.SecretValue == "" {
+		var old *model.Record
+		if !creating {
+			var e error
+			old, e = s.repo.FindRecordWith(ctx, tx, "id", id)
+			if e != nil {
+				return e
+			}
+			if old.Category == model.CategoryHost && old.Category != in.Category {
+				used, e := s.repo.RouteHopUsesHost(ctx, tx, id)
+				if e != nil {
+					return e
+				}
+				if used {
+					return errors.New("HOST is in use by an active route and cannot be converted")
+				}
+			}
+		}
+		if old != nil && old.Category == in.Category && in.Credential != nil && in.Credential.AuthType == model.AuthPassword && in.Credential.SecretValue == "" {
 			existing, e := s.repo.FindDefaultCredentialWith(ctx, tx, id)
 			if e != nil && !errors.Is(e, repository.ErrNotFound) {
 				return e
@@ -159,6 +204,7 @@ func (s *RecordService) save(ctx context.Context, id string, in model.RecordInpu
 		if e := validateRecord(&in); e != nil {
 			return e
 		}
+		in.Tags = normalizeTags(in.Tags)
 		if in.Category != model.CategoryNote {
 			exists, e := s.repo.AliasExists(ctx, tx, in.Alias, id)
 			if e != nil {
@@ -191,25 +237,23 @@ func (s *RecordService) save(ctx context.Context, id string, in model.RecordInpu
 				return errors.New("HOST used as a route hop cannot use another route")
 			}
 		}
-		rec := model.Record{ID: id, Name: in.Name, Alias: in.Alias, Category: in.Category, Notes: in.Notes, Favorite: in.Favorite, CreatedAt: now, UpdatedAt: now}
-		if old, e := s.repo.FindRecordWith(ctx, tx, "id", id); e == nil {
+		rec := model.Record{ID: id, Name: in.Name, Alias: in.Alias, Category: in.Category, Notes: in.Notes, Favorite: in.Favorite, Tags: in.Tags, CreatedAt: now, UpdatedAt: now}
+		if old != nil {
 			if creating {
 				return errors.New("record id already exists")
 			}
-			if old.Category != in.Category {
-				return errors.New("record category cannot be changed")
-			}
 			rec.CreatedAt = old.CreatedAt
-			if e = s.repo.UpdateRecord(ctx, tx, rec); e != nil {
+			if e := s.repo.UpdateRecord(ctx, tx, rec); e != nil {
 				return e
 			}
-		} else if errors.Is(e, repository.ErrNotFound) && creating {
-			if e = s.repo.InsertRecord(ctx, tx, rec); e != nil {
+		} else if creating {
+			if e := s.repo.InsertRecord(ctx, tx, rec); e != nil {
 				return e
 			}
-		} else if errors.Is(e, repository.ErrNotFound) {
-			return repository.ErrNotFound
 		} else {
+			return repository.ErrNotFound
+		}
+		if e := s.repo.ReplaceRecordTags(ctx, tx, id, in.Tags, now); e != nil {
 			return e
 		}
 		credID := ""
@@ -236,6 +280,8 @@ func (s *RecordService) save(ctx context.Context, id string, in model.RecordInpu
 			if e := s.repo.UpsertSSH(ctx, tx, x); e != nil {
 				return e
 			}
+		} else if e := s.repo.DeleteSSH(ctx, tx, id); e != nil {
+			return e
 		}
 		if in.Database != nil {
 			x := *in.Database
@@ -246,6 +292,8 @@ func (s *RecordService) save(ctx context.Context, id string, in model.RecordInpu
 			if e := s.repo.UpsertDatabase(ctx, tx, x); e != nil {
 				return e
 			}
+		} else if e := s.repo.DeleteDatabase(ctx, tx, id); e != nil {
+			return e
 		}
 		return nil
 	})

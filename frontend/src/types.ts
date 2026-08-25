@@ -9,6 +9,7 @@ export interface RecordSummary {
   category: RecordCategory
   notes: string
   favorite: boolean
+  tags: string[]
   createdAt: string
   updatedAt: string
 }
@@ -49,6 +50,7 @@ export interface RecordInput {
   category: RecordCategory
   notes: string
   favorite: boolean
+  tags: string[]
   credential?: Credential
   ssh?: SSHConnection
   database?: DatabaseConnection

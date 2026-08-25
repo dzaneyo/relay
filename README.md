@@ -6,7 +6,7 @@ Relay is a local-first manager for Hosts, Databases, and Notes, with SSH connect
 
 - **Web UI**: Manage HOST, DATABASE, and NOTE records with search, favorites, editing, and deletion.
 - **CLI**: Supports `list`, `search`, `show`, `connect`, and `web`.
-- **HOST routing**: Hosts can connect directly or through routes with multiple jump hosts. `connect` resolves and displays the route plan; SSH session launch is not yet enabled.
+- **HOST routing**: Hosts can connect directly or through routes with multiple jump hosts. Direct and compatible single-jump password connections use `sshpass` when available; routes requiring different passwords use a short-lived `SSH_ASKPASS` helper.
 - **DATABASE**: Store MySQL and PostgreSQL connection details and invoke the corresponding clients through the CLI.
 - **NOTE**: Notes are managed only in the Web UI and are not included in CLI record listings or search results.
 

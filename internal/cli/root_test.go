@@ -25,6 +25,8 @@ func TestCLIExcludesNotesAndConnectBehavior(t *testing.T) {
 	}
 	defer db.Close()
 	a := app.New(db)
+	fake := new(runner)
+	a.Connect = service.NewConnectServiceWithRunner(a.Repo, fake)
 	ctx := context.Background()
 	_, e = a.RecordService.Create(ctx, model.RecordInput{Name: "Private note", Category: model.CategoryNote, Notes: "note-only-keyword"})
 	if e != nil {
@@ -64,15 +66,13 @@ func TestCLIExcludesNotesAndConnectBehavior(t *testing.T) {
 	if e = cmd.Execute(); e != nil {
 		t.Fatal(e)
 	}
-	if !strings.Contains(buf.String(), "otis@10.0.0.1:22") || !strings.Contains(buf.String(), "not enabled") {
+	if !strings.Contains(buf.String(), "otis@10.0.0.1:22") || fake.spec.Name != "ssh" {
 		t.Fatalf("incomplete HOST plan: %s", buf.String())
 	}
 	_, e = a.RecordService.Create(ctx, model.RecordInput{Name: "DB", Alias: "db", Category: model.CategoryDatabase, Credential: &model.Credential{Username: "dbu", AuthType: model.AuthPassword, SecretValue: "db-secret"}, Database: &model.DBConnection{DBType: model.DBMySQL, Host: "db.local"}})
 	if e != nil {
 		t.Fatal(e)
 	}
-	fake := new(runner)
-	a.Connect = service.NewConnectServiceWithRunner(a.Repo, fake)
 	cmd = cli.NewRootCommand(a)
 	cmd.SetOut(buf)
 	cmd.SetErr(buf)

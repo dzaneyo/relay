@@ -10,8 +10,6 @@ import (
 	"os/exec"
 )
 
-var ErrSSHLaunchNotEnabled = errors.New("SSH connection is not enabled yet")
-
 type CommandSpec struct {
 	Name string
 	Args []string
@@ -39,13 +37,15 @@ type ConnectService struct {
 	repo   *repository.Repository
 	plans  *SSHPlanService
 	runner CommandRunner
+	ssh    SSHLauncher
 }
 
 func NewConnectService(r *repository.Repository) *ConnectService {
-	return &ConnectService{repo: r, plans: NewSSHPlanService(r), runner: ExecRunner{}}
+	runner := ExecRunner{}
+	return &ConnectService{repo: r, plans: NewSSHPlanService(r), runner: runner, ssh: NewOpenSSHLauncher(runner)}
 }
 func NewConnectServiceWithRunner(r *repository.Repository, runner CommandRunner) *ConnectService {
-	return &ConnectService{repo: r, plans: NewSSHPlanService(r), runner: runner}
+	return &ConnectService{repo: r, plans: NewSSHPlanService(r), runner: runner, ssh: NewOpenSSHLauncher(runner)}
 }
 func (s *ConnectService) Connect(ctx context.Context, alias string) (*SSHPlan, error) {
 	d, e := s.repo.FindDetailByAlias(ctx, alias)
@@ -58,7 +58,7 @@ func (s *ConnectService) Connect(ctx context.Context, alias string) (*SSHPlan, e
 		if e != nil {
 			return nil, e
 		}
-		return p, ErrSSHLaunchNotEnabled
+		return p, s.ssh.Launch(ctx, *p)
 	case model.CategoryDatabase:
 		return nil, s.connectDatabase(ctx, d)
 	default:
