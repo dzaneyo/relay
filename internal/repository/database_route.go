@@ -19,6 +19,10 @@ func (r *Repository) DatabaseRouteID(ctx context.Context, q DBTX, recordID strin
 	return routeID, err
 }
 
+func (r *Repository) DatabaseRouteIDForRecord(ctx context.Context, recordID string) (string, error) {
+	return r.DatabaseRouteID(ctx, r.db, recordID)
+}
+
 func (r *Repository) DatabaseRouteUsesRoute(ctx context.Context, q DBTX, routeID string) (bool, error) {
 	var n int
 	err := q.QueryRowContext(ctx, `SELECT count(*) FROM rd_db_connections WHERE route_id=?`, routeID).Scan(&n)
