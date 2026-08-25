@@ -1,6 +1,6 @@
 export type RecordCategory = 'NOTE' | 'HOST' | 'DATABASE'
 export type AuthType = 'NONE' | 'PASSWORD' | 'SSH_KEY'
-export type DBType = 'MYSQL' | 'POSTGRESQL'
+export type DBType = 'MYSQL' | 'POSTGRESQL' | 'DORIS'
 
 export interface RecordSummary {
   id: string
