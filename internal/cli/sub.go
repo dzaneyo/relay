@@ -19,6 +19,7 @@ func printRecords(cmd *cobra.Command, items []model.Record) {
 		fmt.Fprintf(cmd.OutOrStdout(), "%-20s %-10s %s\n", x.Alias, x.Category, x.Name)
 	}
 }
+
 func newListCommand(a *app.App) *cobra.Command {
 	return &cobra.Command{Use: "list", Aliases: []string{"ls"}, Short: "List records", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		x, e := a.RecordService.List(cmd.Context(), "")
@@ -28,6 +29,7 @@ func newListCommand(a *app.App) *cobra.Command {
 		return e
 	}}
 }
+
 func newSearchCommand(a *app.App) *cobra.Command {
 	return &cobra.Command{Use: "search <keyword>", Short: "Search records", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		x, e := a.RecordService.List(cmd.Context(), args[0])
@@ -37,6 +39,7 @@ func newSearchCommand(a *app.App) *cobra.Command {
 		return e
 	}}
 }
+
 func newShowCommand(a *app.App) *cobra.Command {
 	return &cobra.Command{Use: "show <alias>", Short: "Show record details", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
 		d, e := a.RecordService.DetailByAlias(cmd.Context(), args[0])
@@ -70,6 +73,7 @@ func newShowCommand(a *app.App) *cobra.Command {
 		return nil
 	}}
 }
+
 func printNode(w interface{ Write([]byte) (int, error) }, prefix string, n service.ResolvedSSHNode) {
 	fmt.Fprintf(w, "%s%s  %s@%s:%d  %s", prefix, n.Alias, n.Username, n.Host, n.Port, n.AuthType)
 	if n.KeyPath != "" {
@@ -77,21 +81,23 @@ func printNode(w interface{ Write([]byte) (int, error) }, prefix string, n servi
 	}
 	fmt.Fprintln(w)
 }
+
 func newConnectCommand(a *app.App) *cobra.Command {
 	return &cobra.Command{Use: "connect <alias>", Short: "Connect to a HOST or DATABASE", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
-		plan, e := a.Connect.Connect(cmd.Context(), args[0])
-		if plan != nil {
-			w := cmd.OutOrStdout()
-			fmt.Fprintln(w, "Route:")
-			for i, n := range plan.Hops {
-				printNode(w, fmt.Sprintf("  %d. ", i+1), n)
-			}
-			fmt.Fprintln(w, "Target:")
-			printNode(w, "  ", plan.Target)
-		}
-		return e
+		return connectAlias(a, cmd, args[0])
 	}}
 }
+
+func newCheckCommand(a *app.App) *cobra.Command {
+	return &cobra.Command{Use: "check <alias>", Short: "Check whether a HOST or DATABASE is ready to connect", Args: cobra.ExactArgs(1), RunE: func(cmd *cobra.Command, args []string) error {
+		report, err := a.Check.Check(cmd.Context(), args[0])
+		if err != nil {
+			return err
+		}
+		return printCheckReport(cmd, report)
+	}}
+}
+
 func newWebCommand(a *app.App) *cobra.Command {
 	return &cobra.Command{Use: "web", Short: "Start local web UI", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, args []string) error {
 		addr := "127.0.0.1:17321"

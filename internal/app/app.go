@@ -13,6 +13,7 @@ type App struct {
 	RecordService *service.RecordService
 	RouteService  *service.RouteService
 	Connect       *service.ConnectService
+	Check         *service.CheckService
 }
 
 func New(db *sql.DB) *App {
@@ -23,5 +24,6 @@ func New(db *sql.DB) *App {
 		RecordService: service.NewRecordService(r),
 		RouteService:  service.NewRouteService(r),
 		Connect:       service.NewConnectService(r),
+		Check:         service.NewCheckService(r),
 	}
 }

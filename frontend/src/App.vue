@@ -249,10 +249,16 @@ function changeAuthType(authType: AuthType) {
   recordForm.keyPath = ''
 }
 
+function databaseDefaultPort(dbType: DBType): number {
+  if (dbType === 'POSTGRESQL') return 5432
+  if (dbType === 'DORIS') return 9030
+  return 3306
+}
+
 function changeDatabaseType(dbType: DBType) {
-  const oldDefault = recordForm.dbType === 'MYSQL' ? 3306 : 5432
+  const oldDefault = databaseDefaultPort(recordForm.dbType)
   if (!recordForm.port || recordForm.port === oldDefault) {
-    recordForm.port = dbType === 'MYSQL' ? 3306 : 5432
+    recordForm.port = databaseDefaultPort(dbType)
   }
   recordForm.dbType = dbType
 }
@@ -596,7 +602,7 @@ onBeforeUnmount(() => {
 
             <template v-if="recordForm.category === 'DATABASE'">
               <div class="form-grid">
-                <label><span>Database type</span><select :value="recordForm.dbType" @change="changeDatabaseType(($event.target as HTMLSelectElement).value as DBType)"><option value="MYSQL">MySQL</option><option value="POSTGRESQL">PostgreSQL</option></select></label>
+                <label><span>Database type</span><select :value="recordForm.dbType" @change="changeDatabaseType(($event.target as HTMLSelectElement).value as DBType)"><option value="MYSQL">MySQL</option><option value="POSTGRESQL">PostgreSQL</option><option value="DORIS">Doris</option></select></label>
                 <label><span>Database name <small>Optional</small></span><input v-model="recordForm.databaseName" placeholder="app_production" /></label>
               </div>
               <div class="form-grid compact">

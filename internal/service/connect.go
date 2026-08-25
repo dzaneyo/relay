@@ -4,10 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/dzaneyo/relay/internal/model"
-	"github.com/dzaneyo/relay/internal/repository"
 	"os"
 	"os/exec"
+
+	"github.com/dzaneyo/relay/internal/model"
+	"github.com/dzaneyo/relay/internal/repository"
 )
 
 type CommandSpec struct {
@@ -52,18 +53,26 @@ func (s *ConnectService) Connect(ctx context.Context, alias string) (*SSHPlan, e
 	if e != nil {
 		return nil, e
 	}
+
+	var plan *SSHPlan
 	switch d.Record.Category {
 	case model.CategoryHost:
-		p, e := s.plans.ResolveByAlias(ctx, alias)
-		if e != nil {
-			return nil, e
+		plan, e = s.plans.ResolveByAlias(ctx, alias)
+		if e == nil {
+			e = s.ssh.Launch(ctx, *plan)
 		}
-		return p, s.ssh.Launch(ctx, *p)
 	case model.CategoryDatabase:
-		return nil, s.connectDatabase(ctx, d)
+		e = s.connectDatabase(ctx, d)
 	default:
-		return nil, fmt.Errorf("record %q is not connectable", alias)
+		e = fmt.Errorf("record %q is not connectable", alias)
 	}
+	if e != nil {
+		return plan, e
+	}
+	// Usage is a convenience signal for ranking. It must never turn a
+	// successful connection into a failed command.
+	_ = s.repo.MarkConnected(ctx, d.Record.ID)
+	return plan, nil
 }
 func (s *ConnectService) connectDatabase(ctx context.Context, d *model.RecordDetail) error {
 	spec, e := BuildDatabaseCommand(d, os.Environ())
@@ -79,7 +88,7 @@ func BuildDatabaseCommand(d *model.RecordDetail, env []string) (CommandSpec, err
 	db := d.Database
 	c := d.Credential
 	switch db.DBType {
-	case model.DBMySQL:
+	case model.DBMySQL, model.DBDoris:
 		args := []string{"-h", db.Host, "-P", fmt.Sprint(db.Port)}
 		if c != nil && c.Username != "" {
 			args = append(args, "-u", c.Username)

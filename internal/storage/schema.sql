@@ -246,3 +246,18 @@ CREATE TABLE
     );
 
 CREATE INDEX IF NOT EXISTS idx_rd_record_tags_tag ON rd_record_tags (tag_id);
+
+-- =========================================================
+-- 8. Connection Usage
+--
+-- 仅记录 HOST / DATABASE 的使用情况，用于 CLI picker 的最近使用排序。
+-- =========================================================
+CREATE TABLE
+    IF NOT EXISTS rd_record_usage (
+        record_id TEXT PRIMARY KEY,
+        last_connected_at TEXT NOT NULL,
+        connect_count INTEGER NOT NULL DEFAULT 0 CHECK (connect_count >= 0),
+        FOREIGN KEY (record_id) REFERENCES rd_records (id) ON DELETE CASCADE
+    );
+
+CREATE INDEX IF NOT EXISTS idx_rd_record_usage_last_connected ON rd_record_usage (last_connected_at DESC);
