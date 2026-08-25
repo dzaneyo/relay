@@ -128,6 +128,10 @@ func validateRecord(in *model.RecordInput) error {
 			if d.Port == 0 {
 				d.Port = 5432
 			}
+		case model.DBDoris:
+			if d.Port == 0 {
+				d.Port = 9030
+			}
 		default:
 			return fmt.Errorf("unsupported database type: %s", d.DBType)
 		}
