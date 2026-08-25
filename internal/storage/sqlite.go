@@ -74,6 +74,10 @@ func OpenPath(dbPath string) (*sql.DB, error) {
 		conn.Close()
 		return nil, fmt.Errorf("migrating database: %w", err)
 	}
+	if err := migrateDatabaseRoute(conn); err != nil {
+		conn.Close()
+		return nil, fmt.Errorf("migrating database route: %w", err)
+	}
 
 	schema, err := schemaFS.ReadFile("schema.sql")
 	if err != nil {
@@ -86,6 +90,44 @@ func OpenPath(dbPath string) (*sql.DB, error) {
 		return nil, fmt.Errorf("initializing database: %w", err)
 	}
 	return conn, nil
+}
+
+// migrateDatabaseRoute upgrades development databases created before DATABASE
+// records could reference an SSH route. Fresh databases are handled by schema.sql.
+func migrateDatabaseRoute(db *sql.DB) error {
+	var tableName string
+	err := db.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name='rd_db_connections'`).Scan(&tableName)
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+
+	rows, err := db.Query(`PRAGMA table_info(rd_db_connections)`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, columnType string
+		var notNull int
+		var defaultValue any
+		var pk int
+		if err = rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &pk); err != nil {
+			return err
+		}
+		if name == "route_id" {
+			return nil
+		}
+	}
+	if err = rows.Err(); err != nil {
+		return err
+	}
+
+	_, err = db.Exec(`ALTER TABLE rd_db_connections ADD COLUMN route_id TEXT REFERENCES rd_ssh_routes(id) ON DELETE SET NULL`)
+	return err
 }
 
 // migrateAccountRecords upgrades the one pre-NOTE development schema in place.
