@@ -35,18 +35,40 @@ func (ExecRunner) Run(ctx context.Context, s CommandSpec) error {
 }
 
 type ConnectService struct {
-	repo   *repository.Repository
-	plans  *SSHPlanService
-	runner CommandRunner
-	ssh    SSHLauncher
+	repo    *repository.Repository
+	plans   *SSHPlanService
+	runner  CommandRunner
+	ssh     SSHLauncher
+	tunnels TunnelOpener
 }
 
 func NewConnectService(r *repository.Repository) *ConnectService {
 	runner := ExecRunner{}
-	return &ConnectService{repo: r, plans: NewSSHPlanService(r), runner: runner, ssh: NewOpenSSHLauncher(runner)}
+	return &ConnectService{
+		repo:    r,
+		plans:   NewSSHPlanService(r),
+		runner:  runner,
+		ssh:     NewOpenSSHLauncher(runner),
+		tunnels: NewOpenSSHTunnel(),
+	}
 }
 func NewConnectServiceWithRunner(r *repository.Repository, runner CommandRunner) *ConnectService {
-	return &ConnectService{repo: r, plans: NewSSHPlanService(r), runner: runner, ssh: NewOpenSSHLauncher(runner)}
+	return &ConnectService{
+		repo:    r,
+		plans:   NewSSHPlanService(r),
+		runner:  runner,
+		ssh:     NewOpenSSHLauncher(runner),
+		tunnels: NewOpenSSHTunnel(),
+	}
+}
+func NewConnectServiceWithRunnerAndTunnel(r *repository.Repository, runner CommandRunner, tunnels TunnelOpener) *ConnectService {
+	return &ConnectService{
+		repo:    r,
+		plans:   NewSSHPlanService(r),
+		runner:  runner,
+		ssh:     NewOpenSSHLauncher(runner),
+		tunnels: tunnels,
+	}
 }
 func (s *ConnectService) Connect(ctx context.Context, alias string) (*SSHPlan, error) {
 	d, e := s.repo.FindDetailByAlias(ctx, alias)
@@ -75,7 +97,32 @@ func (s *ConnectService) Connect(ctx context.Context, alias string) (*SSHPlan, e
 	return plan, nil
 }
 func (s *ConnectService) connectDatabase(ctx context.Context, d *model.RecordDetail) error {
-	spec, e := BuildDatabaseCommand(d, os.Environ())
+	if err := hydrateDatabaseRoute(ctx, s.repo, d); err != nil {
+		return err
+	}
+	if d.Database == nil {
+		return errors.New("database configuration not found")
+	}
+
+	effective := *d
+	database := *d.Database
+	effective.Database = &database
+
+	if database.RouteID != "" {
+		jump, err := s.plans.ResolveOneHopRoute(ctx, database.RouteID)
+		if err != nil {
+			return err
+		}
+		tunnel, err := s.tunnels.Open(ctx, jump, database.Host, database.Port)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = tunnel.Close() }()
+		database.Host = tunnel.LocalHost
+		database.Port = tunnel.LocalPort
+	}
+
+	spec, e := BuildDatabaseCommand(&effective, os.Environ())
 	if e != nil {
 		return e
 	}
