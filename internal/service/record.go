@@ -33,10 +33,24 @@ func (s *RecordService) ListTags(ctx context.Context) ([]string, error) {
 	return s.repo.ListTags(ctx)
 }
 func (s *RecordService) DetailByID(ctx context.Context, id string) (*model.RecordDetail, error) {
-	return s.repo.FindDetailByID(ctx, id)
+	detail, err := s.repo.FindDetailByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err = hydrateDatabaseRoute(ctx, s.repo, detail); err != nil {
+		return nil, err
+	}
+	return detail, nil
 }
 func (s *RecordService) DetailByAlias(ctx context.Context, alias string) (*model.RecordDetail, error) {
-	return s.repo.FindDetailByAlias(ctx, strings.TrimSpace(alias))
+	detail, err := s.repo.FindDetailByAlias(ctx, strings.TrimSpace(alias))
+	if err != nil {
+		return nil, err
+	}
+	if err = hydrateDatabaseRoute(ctx, s.repo, detail); err != nil {
+		return nil, err
+	}
+	return detail, nil
 }
 
 func validateRecord(in *model.RecordInput) error {
@@ -241,6 +255,18 @@ func (s *RecordService) save(ctx context.Context, id string, in model.RecordInpu
 				return errors.New("HOST used as a route hop cannot use another route")
 			}
 		}
+		if in.Database != nil && in.Database.RouteID != "" {
+			route, e := s.repo.FindRouteWith(ctx, tx, in.Database.RouteID)
+			if errors.Is(e, repository.ErrNotFound) {
+				return errors.New("route not found")
+			}
+			if e != nil {
+				return e
+			}
+			if len(route.Hops) != 1 {
+				return errors.New("DATABASE route must contain exactly one hop")
+			}
+		}
 		rec := model.Record{ID: id, Name: in.Name, Alias: in.Alias, Category: in.Category, Notes: in.Notes, Favorite: in.Favorite, Tags: in.Tags, CreatedAt: now, UpdatedAt: now}
 		if old != nil {
 			if creating {
@@ -296,6 +322,9 @@ func (s *RecordService) save(ctx context.Context, id string, in model.RecordInpu
 			if e := s.repo.UpsertDatabase(ctx, tx, x); e != nil {
 				return e
 			}
+			if e := s.repo.SetDatabaseRoute(ctx, tx, id, x.RouteID); e != nil {
+				return e
+			}
 		} else if e := s.repo.DeleteDatabase(ctx, tx, id); e != nil {
 			return e
 		}
@@ -304,7 +333,7 @@ func (s *RecordService) save(ctx context.Context, id string, in model.RecordInpu
 	if err != nil {
 		return nil, err
 	}
-	return s.repo.FindDetailByID(ctx, id)
+	return s.DetailByID(ctx, id)
 }
 
 func (s *RecordService) Delete(ctx context.Context, id string) error {
@@ -378,6 +407,13 @@ func (s *RouteService) save(ctx context.Context, id string, in model.RouteInput,
 				return fmt.Errorf("hop %s has a route; nested routes are not supported", rec.Alias)
 			}
 		}
+		usedByDatabase, e := s.repo.DatabaseRouteUsesRoute(ctx, tx, id)
+		if e != nil {
+			return e
+		}
+		if usedByDatabase && len(x.Hops) != 1 {
+			return errors.New("route is used by a DATABASE and must contain exactly one hop")
+		}
 		if old, e := s.repo.FindRouteWith(ctx, tx, id); e == nil {
 			if creating {
 				return errors.New("route id already exists")
@@ -399,6 +435,13 @@ func (s *RouteService) save(ctx context.Context, id string, in model.RouteInput,
 }
 func (s *RouteService) Delete(ctx context.Context, id string) error {
 	return s.repo.InTx(ctx, func(tx *sql.Tx) error {
+		usedByDatabase, err := s.repo.DatabaseRouteUsesRoute(ctx, tx, id)
+		if err != nil {
+			return err
+		}
+		if usedByDatabase {
+			return errors.New("route is in use by a DATABASE")
+		}
 		return s.repo.DeleteRoute(ctx, tx, id, time.Now().UTC().Format(time.RFC3339Nano))
 	})
 }
