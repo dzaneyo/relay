@@ -190,19 +190,16 @@ CREATE INDEX IF NOT EXISTS idx_rd_ssh_route_hops_host ON rd_ssh_route_hops (host
 --
 -- 仅 DATABASE 类型 Record 使用。
 --
--- 第一版建议支持：
+-- 第一版支持：
 --   MYSQL
 --   POSTGRESQL
---
--- 后面可以继续增加：
---   ORACLE
---   CLICKHOUSE
 --   DORIS
---   SQLSERVER
---   ...
 --
 -- credential_id:
 --   数据库登录凭据
+--
+-- route_id:
+--   可选 SSH 路由；数据库第一版仅支持恰好 1 个 hop。
 -- =========================================================
 CREATE TABLE
     IF NOT EXISTS rd_db_connections (
@@ -215,13 +212,17 @@ CREATE TABLE
         ),
         database_name TEXT,
         credential_id TEXT,
+        route_id TEXT,
         created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
         FOREIGN KEY (record_id) REFERENCES rd_records (id) ON DELETE CASCADE,
-        FOREIGN KEY (credential_id) REFERENCES rd_credentials (id) ON DELETE SET NULL
+        FOREIGN KEY (credential_id) REFERENCES rd_credentials (id) ON DELETE SET NULL,
+        FOREIGN KEY (route_id) REFERENCES rd_ssh_routes (id) ON DELETE SET NULL
     );
 
 CREATE INDEX IF NOT EXISTS idx_rd_db_connections_credential ON rd_db_connections (credential_id);
+
+CREATE INDEX IF NOT EXISTS idx_rd_db_connections_route ON rd_db_connections (route_id);
 
 CREATE INDEX IF NOT EXISTS idx_rd_db_connections_type ON rd_db_connections (db_type);
 

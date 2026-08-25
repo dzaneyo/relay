@@ -82,6 +82,7 @@ type DBConnection struct {
 	Port         int    `json:"port"`
 	DatabaseName string `json:"databaseName,omitempty"`
 	CredentialID string `json:"credentialId,omitempty"`
+	RouteID      string `json:"routeId,omitempty"`
 	CreatedAt    string `json:"createdAt,omitempty"`
 	UpdatedAt    string `json:"updatedAt,omitempty"`
 }

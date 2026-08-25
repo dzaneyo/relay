@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+
 	"github.com/dzaneyo/relay/internal/model"
 	"github.com/dzaneyo/relay/internal/repository"
 )
@@ -66,6 +67,29 @@ func (s *SSHPlanService) ResolveByAlias(ctx context.Context, alias string) (*SSH
 	}
 	return plan, nil
 }
+
+func (s *SSHPlanService) ResolveOneHopRoute(ctx context.Context, routeID string) (ResolvedSSHNode, error) {
+	route, err := s.repo.FindRoute(ctx, routeID)
+	if err != nil {
+		return ResolvedSSHNode{}, err
+	}
+	if len(route.Hops) != 1 {
+		return ResolvedSSHNode{}, errors.New("database route must contain exactly one hop")
+	}
+	hop := route.Hops[0]
+	detail, err := s.repo.FindDetailByID(ctx, hop.HostRecordID)
+	if err != nil {
+		return ResolvedSSHNode{}, fmt.Errorf("resolve database route hop: %w", err)
+	}
+	if detail.Record.Category != model.CategoryHost {
+		return ResolvedSSHNode{}, errors.New("database route hop is not a HOST")
+	}
+	if detail.SSH != nil && detail.SSH.RouteID != "" {
+		return ResolvedSSHNode{}, errors.New("database route hop uses a nested route")
+	}
+	return nodeFromDetail(detail)
+}
+
 func nodeFromDetail(d *model.RecordDetail) (ResolvedSSHNode, error) {
 	if d.SSH == nil {
 		return ResolvedSSHNode{}, errors.New("ssh configuration not found")

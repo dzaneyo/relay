@@ -34,6 +34,7 @@ export interface DatabaseConnection {
   host: string
   port: number
   databaseName?: string
+  routeId?: string
 }
 
 export interface RecordDetail {

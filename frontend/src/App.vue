@@ -77,6 +77,7 @@ const editingRoute = computed(() => selectedRouteId.value !== '')
 const availableHopHosts = computed(() =>
   hostOptions.value.filter((host) => !routeForm.hostIds.includes(host.id)),
 )
+const databaseRoutes = computed(() => routes.value.filter((route) => route.hops.length === 1))
 
 function emptyRecordForm(category: RecordCategory = 'NOTE'): RecordForm {
   return {
@@ -230,7 +231,7 @@ async function selectRecord(id: string) {
       keyPath: credential?.keyPath ?? '',
       host: detail.ssh?.host ?? detail.database?.host ?? '',
       port: detail.ssh?.port ?? detail.database?.port ?? 0,
-      routeId: detail.ssh?.routeId ?? '',
+      routeId: detail.ssh?.routeId ?? detail.database?.routeId ?? '',
       dbType: detail.database?.dbType ?? 'MYSQL',
       databaseName: detail.database?.databaseName ?? '',
     })
@@ -295,6 +296,7 @@ function recordPayload(): RecordInput {
       host: recordForm.host,
       port: Number(recordForm.port),
       databaseName: recordForm.databaseName,
+      routeId: recordForm.routeId,
     }
   }
   return base
@@ -609,6 +611,8 @@ onBeforeUnmount(() => {
                 <label class="grow"><span>Host</span><input v-model="recordForm.host" required placeholder="db.internal" /></label>
                 <label class="port"><span>Port</span><input v-model.number="recordForm.port" required type="number" min="1" max="65535" /></label>
               </div>
+              <label><span>Route <small>Optional · one hop only</small></span><select v-model="recordForm.routeId"><option value="">Direct connection</option><option v-for="route in databaseRoutes" :key="route.id" :value="route.id">{{ route.name }}</option></select></label>
+              <p v-if="routes.length > 0 && databaseRoutes.length === 0" class="hint route-empty">Database connections currently support one-hop routes only.</p>
             </template>
 
             <div v-if="recordForm.category !== 'NOTE' && (recordForm.category !== 'HOST' || recordForm.authType !== 'NONE')" class="form-grid">
