@@ -69,9 +69,9 @@ func (s *ConnectService) Connect(ctx context.Context, alias string) (*SSHPlan, e
 	if e != nil {
 		return plan, e
 	}
-	if markErr := s.repo.MarkConnected(ctx, d.Record.ID); markErr != nil {
-		return plan, fmt.Errorf("record connection usage: %w", markErr)
-	}
+	// Usage is a convenience signal for ranking. It must never turn a
+	// successful connection into a failed command.
+	_ = s.repo.MarkConnected(ctx, d.Record.ID)
 	return plan, nil
 }
 func (s *ConnectService) connectDatabase(ctx context.Context, d *model.RecordDetail) error {
