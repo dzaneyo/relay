@@ -8,7 +8,6 @@ import (
 	"strings"
 
 	"github.com/dzaneyo/relay/internal/app"
-	"github.com/dzaneyo/relay/internal/model"
 	"github.com/dzaneyo/relay/internal/service"
 	"github.com/spf13/cobra"
 )
@@ -108,5 +107,3 @@ func printCheckReport(cmd *cobra.Command, report *service.CheckReport) error {
 	}
 	return nil
 }
-
-var _ = model.CategoryHost
