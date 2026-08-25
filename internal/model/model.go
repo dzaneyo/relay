@@ -21,6 +21,7 @@ type DBType string
 const (
 	DBMySQL      DBType = "MYSQL"
 	DBPostgreSQL DBType = "POSTGRESQL"
+	DBDoris      DBType = "DORIS"
 )
 
 type Record struct {
