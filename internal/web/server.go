@@ -110,6 +110,18 @@ func (s *Server) getRecord(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, 200, redact(x))
 }
+func (s *Server) getRecordSecret(w http.ResponseWriter, r *http.Request) {
+	x, e := s.app.RecordService.DetailByID(r.Context(), chi.URLParam(r, "id"))
+	if e != nil {
+		writeError(w, statusFor(e), e)
+		return
+	}
+	if x.Credential == nil || x.Credential.AuthType != model.AuthPassword || x.Credential.SecretValue == "" {
+		writeError(w, http.StatusNotFound, errors.New("password not found"))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"secretValue": x.Credential.SecretValue})
+}
 func (s *Server) createRecord(w http.ResponseWriter, r *http.Request) {
 	var in model.RecordInput
 	if !decode(w, r, &in) {
