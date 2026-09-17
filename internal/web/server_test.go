@@ -78,6 +78,45 @@ func TestHealthAndNoteAPI(t *testing.T) {
 	}
 }
 
+func TestPasswordSecretEndpoint(t *testing.T) {
+	_, h := testServer(t)
+	body := []byte(`{"name":"Prod DB","alias":"prod-db","category":"DATABASE","credential":{"username":"root","authType":"PASSWORD","secretValue":"s3cr3t"},"database":{"dbType":"MYSQL","host":"127.0.0.1","port":3306}}`)
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/records", bytes.NewReader(body)))
+	if w.Code != http.StatusCreated {
+		t.Fatalf("create status=%d body=%s", w.Code, w.Body.String())
+	}
+	var created struct {
+		Record struct {
+			ID string `json:"id"`
+		} `json:"record"`
+	}
+	if err := json.Unmarshal(w.Body.Bytes(), &created); err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(w.Body.Bytes(), []byte("s3cr3t")) {
+		t.Fatalf("create response leaked password: %s", w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/records/"+created.Record.ID, nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("detail status=%d body=%s", w.Code, w.Body.String())
+	}
+	if bytes.Contains(w.Body.Bytes(), []byte("s3cr3t")) {
+		t.Fatalf("detail response leaked password: %s", w.Body.String())
+	}
+
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/api/records/"+created.Record.ID+"/secret", nil))
+	if w.Code != http.StatusOK {
+		t.Fatalf("secret status=%d body=%s", w.Code, w.Body.String())
+	}
+	if !bytes.Contains(w.Body.Bytes(), []byte(`"secretValue":"s3cr3t"`)) {
+		t.Fatalf("secret response missing password: %s", w.Body.String())
+	}
+}
+
 func TestEmbeddedFrontendIsServed(t *testing.T) {
 	_, h := testServer(t)
 	w := httptest.NewRecorder()

@@ -6,6 +6,7 @@ import {
   deleteRecord,
   deleteRoute,
   getRecord,
+  getRecordSecret,
   listRecords,
   listRoutes,
   listTags,
@@ -62,6 +63,9 @@ const routeDrawerOpen = ref(false)
 const hasExistingPassword = ref(false)
 const originalHasExistingPassword = ref(false)
 const originalRecordCategory = ref<RecordCategory>('NOTE')
+const passwordVisible = ref(false)
+const passwordLoading = ref(false)
+const passwordLoadedFromServer = ref(false)
 const loading = ref(false)
 const detailLoading = ref(false)
 const saving = ref(false)
@@ -106,6 +110,13 @@ function messageOf(value: unknown): string {
 function clearMessages() {
   error.value = ''
   success.value = ''
+}
+
+function resetPasswordState(clearValue = false) {
+  passwordVisible.value = false
+  passwordLoading.value = false
+  passwordLoadedFromServer.value = false
+  if (clearValue) recordForm.password = ''
 }
 
 async function loadRecordList() {
@@ -167,6 +178,7 @@ async function loadRouteData() {
 async function switchTab(next: Tab) {
   if (tab.value === next) return
   if (saving.value || detailLoading.value) return
+  resetPasswordState(true)
   recordDrawerOpen.value = false
   routeDrawerOpen.value = false
   tab.value = next
@@ -180,6 +192,7 @@ function newRecord(category: RecordCategory = 'NOTE') {
   hasExistingPassword.value = false
   originalHasExistingPassword.value = false
   originalRecordCategory.value = category
+  resetPasswordState(true)
   clearRecordDrafts()
   Object.assign(recordForm, emptyRecordForm(category))
   recordDrafts[category] = snapshotRecordForm()
@@ -189,6 +202,7 @@ function newRecord(category: RecordCategory = 'NOTE') {
 
 function closeRecordDrawer() {
   if (saving.value || detailLoading.value) return
+  resetPasswordState(true)
   recordDrawerOpen.value = false
 }
 
@@ -202,6 +216,7 @@ function changeCategory(category: RecordCategory) {
     tags: recordForm.tags,
   }
   Object.assign(recordForm, recordDrafts[category] ?? { ...emptyRecordForm(category), ...common })
+  resetPasswordState(false)
   hasExistingPassword.value = editingRecord.value
     && category === originalRecordCategory.value
     && originalHasExistingPassword.value
@@ -210,6 +225,7 @@ function changeCategory(category: RecordCategory) {
 async function selectRecord(id: string) {
   selectedRecordId.value = id
   hasExistingPassword.value = false
+  resetPasswordState(true)
   detailLoading.value = true
   recordDrawerOpen.value = true
   clearMessages()
@@ -248,6 +264,7 @@ function changeAuthType(authType: AuthType) {
   recordForm.authType = authType
   recordForm.password = ''
   recordForm.keyPath = ''
+  resetPasswordState(false)
 }
 
 function databaseDefaultPort(dbType: DBType): number {
@@ -262,6 +279,52 @@ function changeDatabaseType(dbType: DBType) {
     recordForm.port = databaseDefaultPort(dbType)
   }
   recordForm.dbType = dbType
+}
+
+async function togglePasswordVisibility() {
+  clearMessages()
+  if (passwordVisible.value) {
+    passwordVisible.value = false
+    if (passwordLoadedFromServer.value) {
+      recordForm.password = ''
+      passwordLoadedFromServer.value = false
+    }
+    return
+  }
+
+  try {
+    passwordLoading.value = true
+    if (!recordForm.password && editingRecord.value && hasExistingPassword.value && selectedRecordId.value) {
+      const result = await getRecordSecret(selectedRecordId.value)
+      recordForm.password = result.secretValue
+      passwordLoadedFromServer.value = true
+    }
+    passwordVisible.value = true
+  } catch (value) {
+    error.value = messageOf(value)
+  } finally {
+    passwordLoading.value = false
+  }
+}
+
+async function copyPassword() {
+  clearMessages()
+  try {
+    if (!navigator.clipboard) throw new Error('Clipboard access is unavailable.')
+    let password = recordForm.password
+    if (!password && editingRecord.value && hasExistingPassword.value && selectedRecordId.value) {
+      passwordLoading.value = true
+      const result = await getRecordSecret(selectedRecordId.value)
+      password = result.secretValue
+    }
+    if (!password) throw new Error('Password is empty.')
+    await navigator.clipboard.writeText(password)
+    success.value = 'Password copied.'
+  } catch (value) {
+    error.value = messageOf(value)
+  } finally {
+    passwordLoading.value = false
+  }
 }
 
 function recordPayload(): RecordInput {
@@ -315,7 +378,7 @@ async function saveRecord() {
     hasExistingPassword.value = detail.credential?.authType === 'PASSWORD'
     originalHasExistingPassword.value = hasExistingPassword.value
     originalRecordCategory.value = detail.record.category
-    recordForm.password = ''
+    resetPasswordState(true)
     clearRecordDrafts()
     recordDrafts[recordForm.category] = snapshotRecordForm()
     await Promise.all([loadRecordList(), refreshRoutes(), refreshTags()])
@@ -335,6 +398,7 @@ async function removeRecord() {
     await deleteRecord(selectedRecordId.value)
     selectedRecordId.value = ''
     hasExistingPassword.value = false
+    resetPasswordState(true)
     Object.assign(recordForm, emptyRecordForm())
     recordDrawerOpen.value = false
     await loadRecordList()
@@ -617,7 +681,35 @@ onBeforeUnmount(() => {
 
             <div v-if="recordForm.category !== 'NOTE' && (recordForm.category !== 'HOST' || recordForm.authType !== 'NONE')" class="form-grid">
               <label><span>Username</span><input v-model="recordForm.username" required autocomplete="username" placeholder="username" /></label>
-              <label v-if="recordForm.category !== 'HOST' || recordForm.authType === 'PASSWORD'"><span>Password <small v-if="editingRecord && hasExistingPassword">Leave blank to keep current</small></span><input v-model="recordForm.password" :required="!editingRecord || !hasExistingPassword" type="password" autocomplete="new-password" placeholder="••••••••" /></label>
+              <label v-if="recordForm.category !== 'HOST' || recordForm.authType === 'PASSWORD'">
+                <span>Password <small v-if="editingRecord && hasExistingPassword">Leave blank to keep current</small></span>
+                <div class="password-control">
+                  <input
+                    v-model="recordForm.password"
+                    :required="!editingRecord || !hasExistingPassword"
+                    :type="passwordVisible ? 'text' : 'password'"
+                    autocomplete="new-password"
+                    placeholder="••••••••"
+                    @input="passwordLoadedFromServer = false"
+                  />
+                  <button
+                    class="password-action"
+                    type="button"
+                    :disabled="passwordLoading || saving"
+                    :title="passwordVisible ? 'Hide password' : 'Show password'"
+                    :aria-label="passwordVisible ? 'Hide password' : 'Show password'"
+                    @click="togglePasswordVisibility"
+                  >{{ passwordVisible ? '🙈' : '👁' }}</button>
+                  <button
+                    class="password-action password-copy"
+                    type="button"
+                    :disabled="passwordLoading || saving"
+                    title="Copy password"
+                    aria-label="Copy password"
+                    @click="copyPassword"
+                  >Copy</button>
+                </div>
+              </label>
               <label v-else><span>Private key path</span><input v-model="recordForm.keyPath" required placeholder="~/.ssh/id_ed25519" /></label>
             </div>
 
@@ -663,3 +755,37 @@ onBeforeUnmount(() => {
     </div>
   </main>
 </template>
+
+<style scoped>
+.password-control {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 42px auto;
+  gap: 6px;
+  align-items: center;
+}
+.password-action {
+  min-height: 41px;
+  padding: 0 10px;
+  border: 1px solid #ccd4cf;
+  border-radius: 8px;
+  color: #34413c;
+  background: #fff;
+  font-weight: 650;
+}
+.password-action:hover:not(:disabled) {
+  border-color: #8fbea8;
+  background: #f6fbf8;
+}
+.password-copy {
+  min-width: 56px;
+  color: #176b51;
+}
+@media (max-width: 520px) {
+  .password-control {
+    grid-template-columns: minmax(0, 1fr) 42px;
+  }
+  .password-copy {
+    grid-column: 1 / -1;
+  }
+}
+</style>
