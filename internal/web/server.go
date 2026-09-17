@@ -28,6 +28,7 @@ func (s *Server) Handler() http.Handler {
 	r.Get("/api/tags", s.listTags)
 	r.Post("/api/records", s.createRecord)
 	r.Get("/api/records/{id}", s.getRecord)
+	r.Get("/api/records/{id}/secret", s.getRecordSecret)
 	r.Put("/api/records/{id}", s.updateRecord)
 	r.Delete("/api/records/{id}", s.deleteRecord)
 	r.Get("/api/routes", s.listRoutes)
