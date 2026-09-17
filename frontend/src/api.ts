@@ -38,6 +38,10 @@ export function getRecord(id: string): Promise<RecordDetail> {
   return request(`/api/records/${encodeURIComponent(id)}`)
 }
 
+export function getRecordSecret(id: string): Promise<{ secretValue: string }> {
+  return request(`/api/records/${encodeURIComponent(id)}/secret`)
+}
+
 export function createRecord(input: RecordInput): Promise<RecordDetail> {
   return request('/api/records', { method: 'POST', body: JSON.stringify(input) })
 }
